@@ -40,7 +40,7 @@ export function testSSMConnectDb(ctx: DatabaseTestContext) {
     );
   });
 
-  it('should create a security group with correct ingress and egress rules', async () => {
+  it('should create an EC2 security group with correct ingress and egress rules', async () => {
     const ssmConnectDb = ctx.outputs.ssmConnectDb.value;
     const vpc = ctx.outputs.vpc.value;
     const ec2SecurityGroupId = ssmConnectDb.ec2SSMConnect.ec2SecurityGroup.id;
@@ -51,34 +51,87 @@ export function testSSMConnectDb(ctx: DatabaseTestContext) {
     const { SecurityGroups } = await ctx.clients.ec2.send(command);
     assert.ok(
       SecurityGroups && SecurityGroups.length > 0,
-      'DB security groups should exist',
+      'EC2 security group should exist',
     );
     const [securityGroup] = SecurityGroups;
     assert.strictEqual(
       securityGroup.VpcId,
       vpc.vpc.vpcId,
-      'DB security group should be in the correct VPC',
+      'EC2 security group should be in the correct VPC',
     );
 
-    const sshRule = securityGroup.IpPermissions?.find(
-      (rule: IpPermission) => rule.FromPort === 22 && rule.ToPort === 22,
-    );
-    assert.ok(sshRule, 'Should have SSH port 22 ingress rule');
-    assert.strictEqual(
-      sshRule.IpProtocol,
-      'tcp',
-      'SSH rule should allow TCP protocol',
-    );
     assert.deepStrictEqual(
-      sshRule.IpRanges?.map(r => r.CidrIp),
-      [vpc.vpc.vpc.cidrBlock],
-      'SHH rule should allow VPC CIDR block',
+      securityGroup.IpPermissions ?? [],
+      [],
+      'EC2 security group should not allow any inbound traffic',
     );
 
-    const httpsRule = securityGroup.IpPermissions?.find(
+    const httpsRule = securityGroup.IpPermissionsEgress?.find(
       (rule: IpPermission) => rule.FromPort === 443 && rule.ToPort === 443,
     );
-    assert.ok(httpsRule, 'Should have HTTPS port 443 ingress rule');
+    assert.ok(httpsRule, 'Should have HTTPS port 443 egress rule');
+    assert.strictEqual(
+      httpsRule.IpProtocol,
+      'tcp',
+      'HTTPS rule should allow TCP protocol',
+    );
+    assert.deepStrictEqual(
+      httpsRule.IpRanges?.map(r => r.CidrIp),
+      ['0.0.0.0/0'],
+      'HTTPS rule should allow all CIDR blocks',
+    );
+
+    const vpcRule = securityGroup.IpPermissionsEgress?.find(
+      (rule: IpPermission) => rule.FromPort === 0 && rule.ToPort === 65535,
+    );
+    assert.ok(vpcRule, 'Should have VPC TCP egress rule');
+    assert.strictEqual(
+      vpcRule.IpProtocol,
+      'tcp',
+      'VPC rule should allow TCP protocol',
+    );
+    assert.deepStrictEqual(
+      vpcRule.IpRanges?.map(r => r.CidrIp),
+      [vpc.vpc.vpc.cidrBlock],
+      'VPC rule should allow VPC CIDR block',
+    );
+
+    assert.strictEqual(
+      securityGroup.IpPermissionsEgress?.length,
+      2,
+      'EC2 security group should only have HTTPS and VPC egress rules',
+    );
+  });
+
+  it('should create a VPC endpoint security group with correct ingress and egress rules', async () => {
+    const ssmConnectDb = ctx.outputs.ssmConnectDb.value;
+    const vpc = ctx.outputs.vpc.value;
+    const vpcEndpointSecurityGroupId =
+      ssmConnectDb.ec2SSMConnect.vpcEndpointSecurityGroup.id;
+
+    const command = new DescribeSecurityGroupsCommand({
+      GroupIds: [vpcEndpointSecurityGroupId],
+    });
+    const { SecurityGroups } = await ctx.clients.ec2.send(command);
+    assert.ok(
+      SecurityGroups && SecurityGroups.length > 0,
+      'VPC endpoint security group should exist',
+    );
+    const [securityGroup] = SecurityGroups;
+    assert.strictEqual(
+      securityGroup.VpcId,
+      vpc.vpc.vpcId,
+      'VPC endpoint security group should be in the correct VPC',
+    );
+
+    assert.strictEqual(
+      securityGroup.IpPermissions?.length,
+      1,
+      'VPC endpoint security group should only have HTTPS ingress rule',
+    );
+    const [httpsRule] = securityGroup.IpPermissions;
+    assert.strictEqual(httpsRule.FromPort, 443, 'HTTPS rule should be 443');
+    assert.strictEqual(httpsRule.ToPort, 443, 'HTTPS rule should be 443');
     assert.strictEqual(
       httpsRule.IpProtocol,
       'tcp',
@@ -87,7 +140,7 @@ export function testSSMConnectDb(ctx: DatabaseTestContext) {
     assert.deepStrictEqual(
       httpsRule.IpRanges?.map(r => r.CidrIp),
       [vpc.vpc.vpc.cidrBlock],
-      'HTPPS rule should allow VPC CIDR block',
+      'HTTPS rule should allow VPC CIDR block',
     );
 
     const egressRule = securityGroup.IpPermissionsEgress?.find(
@@ -192,7 +245,8 @@ export function testSSMConnectDb(ctx: DatabaseTestContext) {
     const ssmConnectDb = ctx.outputs.ssmConnectDb.value;
     const ssmVpcEndpoint = ssmConnectDb.ec2SSMConnect.ssmVpcEndpoint;
     const vpc = ctx.outputs.vpc.value;
-    const ec2SecurityGroupId = ssmConnectDb.ec2SSMConnect.ec2SecurityGroup.id;
+    const vpcEndpointSecurityGroupId =
+      ssmConnectDb.ec2SSMConnect.vpcEndpointSecurityGroup.id;
 
     assert.partialDeepStrictEqual(
       ssmVpcEndpoint,
@@ -201,7 +255,7 @@ export function testSSMConnectDb(ctx: DatabaseTestContext) {
         ipAddressType: 'ipv4',
         vpcEndpointType: 'Interface',
         subnetIds: [vpc.vpc.privateSubnetIds[0]],
-        securityGroupIds: [ec2SecurityGroupId],
+        securityGroupIds: [vpcEndpointSecurityGroupId],
         privateDnsEnabled: true,
         serviceName: `com.amazonaws.${region}.ssm`,
       },
@@ -214,7 +268,8 @@ export function testSSMConnectDb(ctx: DatabaseTestContext) {
     const ec2MessagesVpcEndpoint =
       ssmConnectDb.ec2SSMConnect.ec2MessagesVpcEndpoint;
     const vpc = ctx.outputs.vpc.value;
-    const ec2SecurityGroupId = ssmConnectDb.ec2SSMConnect.ec2SecurityGroup.id;
+    const vpcEndpointSecurityGroupId =
+      ssmConnectDb.ec2SSMConnect.vpcEndpointSecurityGroup.id;
 
     assert.partialDeepStrictEqual(
       ec2MessagesVpcEndpoint,
@@ -223,7 +278,7 @@ export function testSSMConnectDb(ctx: DatabaseTestContext) {
         ipAddressType: 'ipv4',
         vpcEndpointType: 'Interface',
         subnetIds: [vpc.vpc.privateSubnetIds[0]],
-        securityGroupIds: [ec2SecurityGroupId],
+        securityGroupIds: [vpcEndpointSecurityGroupId],
         privateDnsEnabled: true,
         serviceName: `com.amazonaws.${region}.ec2messages`,
       },
@@ -236,7 +291,8 @@ export function testSSMConnectDb(ctx: DatabaseTestContext) {
     const ssmMessagesVpcEndpoint =
       ssmConnectDb.ec2SSMConnect.ssmMessagesVpcEndpoint;
     const vpc = ctx.outputs.vpc.value;
-    const ec2SecurityGroupId = ssmConnectDb.ec2SSMConnect.ec2SecurityGroup.id;
+    const vpcEndpointSecurityGroupId =
+      ssmConnectDb.ec2SSMConnect.vpcEndpointSecurityGroup.id;
 
     assert.partialDeepStrictEqual(
       ssmMessagesVpcEndpoint,
@@ -245,7 +301,7 @@ export function testSSMConnectDb(ctx: DatabaseTestContext) {
         ipAddressType: 'ipv4',
         vpcEndpointType: 'Interface',
         subnetIds: [vpc.vpc.privateSubnetIds[0]],
-        securityGroupIds: [ec2SecurityGroupId],
+        securityGroupIds: [vpcEndpointSecurityGroupId],
         privateDnsEnabled: true,
         serviceName: `com.amazonaws.${region}.ssmmessages`,
       },

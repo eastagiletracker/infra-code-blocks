@@ -70,7 +70,7 @@ export const ssmHostId = ssmConnect.ec2.id;
 - Enhanced monitoring and Performance Insights are enabled only when a monitoring role is available; the primary creates that role only when `enableMonitoring` is truthy.
 - `Ec2SSMConnect` uses an explicit `region` when provided and otherwise derives the region from the active AWS provider for region-specific VPC endpoint service names.
 - `Ec2SSMConnect` always places the helper instance and all three interface endpoints in the first private subnet only, and the helper instance does not receive a public IP.
-- The helper security group is attached to the EC2 instance and interface endpoints, allows TCP/22 and TCP/443 from the VPC CIDR, and allows all outbound traffic; database access relies on the database security group allowing TCP/5432 from the VPC CIDR.
+- The helper instance and the interface endpoints use separate security groups. The instance security group allows no inbound traffic and allows outbound TCP/443 to anywhere plus outbound TCP to the VPC CIDR for port forwarding; the endpoint security group allows TCP/443 from the VPC CIDR and all outbound traffic. Database access relies on the database security group allowing TCP/5432 from the VPC CIDR.
 - When `ami` is omitted, `Ec2SSMConnect` looks up the most recent Amazon Linux 2023 ARM64 EBS HVM AMI with ENA support and defaults the instance type to `t4g.nano`.
 
 ## API Reference
@@ -384,14 +384,15 @@ Direct constructor input: `args: Ec2SSMConnect.Args`
 
 **Outputs**
 
-| Property                                                           | Description                                                             |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `name`<br/>`string`                                                | Component name.                                                         |
-| `ec2SecurityGroup`<br/>`aws.ec2.SecurityGroup`                     | Security group attached to the helper instance and interface endpoints. |
-| `role`<br/>`aws.iam.Role`                                          | EC2 role with the SSM managed policy attached.                          |
-| `ssmProfile`<br/>`aws.iam.InstanceProfile`                         | Instance profile used by the helper EC2 instance.                       |
-| `ssmVpcEndpoint`<br/>`aws.ec2.VpcEndpoint`                         | Interface endpoint for `com.amazonaws.<region>.ssm`.                    |
-| `ec2MessagesVpcEndpoint`<br/>`aws.ec2.VpcEndpoint`                 | Interface endpoint for `com.amazonaws.<region>.ec2messages`.            |
-| `ssmMessagesVpcEndpoint`<br/>`aws.ec2.VpcEndpoint`                 | Interface endpoint for `com.amazonaws.<region>.ssmmessages`.            |
-| `ec2`<br/>`aws.ec2.Instance`                                       | Private helper EC2 instance.                                            |
-| `amiResult`<br/>`pulumi.Output<aws.ec2.GetAmiResult> \| undefined` | AMI lookup result when `ami` is not supplied.                           |
+| Property                                                           | Description                                                  |
+| ------------------------------------------------------------------ | ------------------------------------------------------------ |
+| `name`<br/>`string`                                                | Component name.                                              |
+| `ec2SecurityGroup`<br/>`aws.ec2.SecurityGroup`                     | Security group attached to the helper instance.              |
+| `vpcEndpointSecurityGroup`<br/>`aws.ec2.SecurityGroup`             | Security group attached to the interface endpoints.          |
+| `role`<br/>`aws.iam.Role`                                          | EC2 role with the SSM managed policy attached.               |
+| `ssmProfile`<br/>`aws.iam.InstanceProfile`                         | Instance profile used by the helper EC2 instance.            |
+| `ssmVpcEndpoint`<br/>`aws.ec2.VpcEndpoint`                         | Interface endpoint for `com.amazonaws.<region>.ssm`.         |
+| `ec2MessagesVpcEndpoint`<br/>`aws.ec2.VpcEndpoint`                 | Interface endpoint for `com.amazonaws.<region>.ec2messages`. |
+| `ssmMessagesVpcEndpoint`<br/>`aws.ec2.VpcEndpoint`                 | Interface endpoint for `com.amazonaws.<region>.ssmmessages`. |
+| `ec2`<br/>`aws.ec2.Instance`                                       | Private helper EC2 instance.                                 |
+| `amiResult`<br/>`pulumi.Output<aws.ec2.GetAmiResult> \| undefined` | AMI lookup result when `ami` is not supplied.                |

@@ -24,6 +24,7 @@ const defaults = {
 export class Ec2SSMConnect extends pulumi.ComponentResource {
   name: string;
   ec2SecurityGroup: aws.ec2.SecurityGroup;
+  vpcEndpointSecurityGroup: aws.ec2.SecurityGroup;
   role: aws.iam.Role;
   ssmProfile: aws.iam.InstanceProfile;
   ssmVpcEndpoint: aws.ec2.VpcEndpoint;
@@ -75,13 +76,33 @@ export class Ec2SSMConnect extends pulumi.ComponentResource {
     this.ec2SecurityGroup = new aws.ec2.SecurityGroup(
       `${this.name}-ec2-security-group`,
       {
-        ingress: [
+        ingress: [],
+        egress: [
           {
             protocol: 'tcp',
-            fromPort: 22,
-            toPort: 22,
+            fromPort: 443,
+            toPort: 443,
+            cidrBlocks: ['0.0.0.0/0'],
+          },
+          // SSM port forwarding connects from the instance to the target host
+          // (e.g. RDS on 5432), so the instance must reach the rest of the VPC.
+          {
+            protocol: 'tcp',
+            fromPort: 0,
+            toPort: 65535,
             cidrBlocks: [vpcOutput.vpc.cidrBlock],
           },
+        ],
+        vpcId: vpcOutput.vpcId,
+        tags: commonTags,
+      },
+      { parent: this },
+    );
+
+    this.vpcEndpointSecurityGroup = new aws.ec2.SecurityGroup(
+      `${this.name}-vpc-endpoint-security-group`,
+      {
+        ingress: [
           {
             protocol: 'tcp',
             fromPort: 443,
@@ -162,7 +183,7 @@ export class Ec2SSMConnect extends pulumi.ComponentResource {
         serviceName: pulumi.interpolate`com.amazonaws.${region}.ssm`,
         vpcEndpointType: 'Interface',
         subnetIds: [subnetId],
-        securityGroupIds: [this.ec2SecurityGroup.id],
+        securityGroupIds: [this.vpcEndpointSecurityGroup.id],
         privateDnsEnabled: true,
         tags: commonTags,
       },
@@ -177,7 +198,7 @@ export class Ec2SSMConnect extends pulumi.ComponentResource {
         serviceName: pulumi.interpolate`com.amazonaws.${region}.ec2messages`,
         vpcEndpointType: 'Interface',
         subnetIds: [subnetId],
-        securityGroupIds: [this.ec2SecurityGroup.id],
+        securityGroupIds: [this.vpcEndpointSecurityGroup.id],
         privateDnsEnabled: true,
         tags: commonTags,
       },
@@ -192,7 +213,7 @@ export class Ec2SSMConnect extends pulumi.ComponentResource {
         serviceName: pulumi.interpolate`com.amazonaws.${region}.ssmmessages`,
         vpcEndpointType: 'Interface',
         subnetIds: [subnetId],
-        securityGroupIds: [this.ec2SecurityGroup.id],
+        securityGroupIds: [this.vpcEndpointSecurityGroup.id],
         privateDnsEnabled: true,
         tags: commonTags,
       },

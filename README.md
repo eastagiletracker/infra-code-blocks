@@ -206,7 +206,7 @@ export const webServiceName = web.service.apply(
 
 `Database` instances are deployed inside isolated subnets and are not publicly reachable. When you need operator access for migrations, debugging, or a desktop database client, this package can provision an `Ec2SSMConnect` helper host that stays private and is reachable through AWS Systems Manager.
 
-This workflow reuses the helper EC2 instance plus the SSM, EC2 Messages, and SSM Messages VPC interface endpoints created by the component, so you do not need a bastion with a public IP or SSH key pair. The helper instance itself accepts SSH only from within the VPC, while your local machine connects through an SSM session.
+This workflow reuses the helper EC2 instance plus the SSM, EC2 Messages, and SSM Messages VPC interface endpoints created by the component, so you do not need a bastion with a public IP or SSH key pair. The helper instance accepts no inbound traffic at all, while your local machine connects through an SSM session.
 
 ![AWS RDS connection schema](https://raw.githubusercontent.com/ExtensionEngine/infra-code-blocks/master/assets/images/ssm-rds.png)
 
